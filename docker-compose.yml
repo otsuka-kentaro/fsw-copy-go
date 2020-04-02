@@ -1,0 +1,8 @@
+version: "2.4"
+services:
+  builder:
+    build:
+      context: .
+      target: builder
+  app:
+    build: .
