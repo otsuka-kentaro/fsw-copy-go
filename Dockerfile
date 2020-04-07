@@ -12,6 +12,7 @@ COPY go.sum .
 RUN go mod download
 
 COPY main.go .
+COPY lib lib
 
 RUN go build -o app main.go
 RUN chmod +x /app
@@ -21,5 +22,5 @@ FROM alpine:3.11.5
 
 COPY --from=builder /app/app /app
 
-CMD ["/app"]
+ENTRYPOINT ["/app"]
 
