@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/deckarep/golang-set"
@@ -16,6 +18,7 @@ import (
 	"okentaro/fsw-copy-go/lib"
 )
 
+const interval = 5 // TODO: 環境変数化
 var watcher *fsnotify.Watcher
 var srcDir string
 var destDir []string
@@ -71,7 +74,14 @@ func main() {
 		}
 	}()
 
-	done := make(chan bool)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+
+	exitChan := make(chan int)
 	queue := make(chan fsnotify.Event)
 	go func() {
 		for {
@@ -79,7 +89,7 @@ func main() {
 			case event, ok := <-watcher.Events:
 				if !ok {
 					log.Println("watcher stopped")
-					done <- true
+					exitChan <- 1
 					return
 				}
 				log.Println("event:", event)
@@ -87,15 +97,32 @@ func main() {
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					log.Println("watcher stopped")
-					done <- true
+					exitChan <- 1
 					return
 				}
 				log.Println("error:", err)
+			case s := <-sigChan:
+				switch s {
+				case syscall.SIGHUP:
+					fallthrough
+				case syscall.SIGINT:
+					fallthrough
+				case syscall.SIGTERM:
+					fallthrough
+				case syscall.SIGQUIT:
+					log.Println("signal detected")
+					exitChan <- 0
+				default:
+					log.Println("unknown signal")
+					exitChan <- 1
+				}
 			}
 		}
 	}()
-	go dispatcher(5, queue, copyFiles(srcDir, destDir...))
-	<-done
+	go dispatcher(interval, queue, copyFiles(srcDir, destDir...))
+	code := <-exitChan
+	// TODO: ファイル変更中のコンテナ終了時
+	os.Exit(code)
 }
 
 // dispatcher ch への書き込みが途切れてから interval 秒後に run 実行
